@@ -55,6 +55,7 @@ Also a new sheet will start at midnight!
 
 
 THIS IS STILL UNDER CONSTRUCTION:
+
 Working on only getting data when the data changes so your not getting duplicates.
 Saving in a separate folder instead of same folder as program.
-checkbox for new sheet creatio.
+checkbox for new sheet creation.
