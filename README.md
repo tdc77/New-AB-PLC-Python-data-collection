@@ -7,6 +7,15 @@ when opening is vscode or pycharm make sure the Main_page.py, setup_page.py, __i
 <img width="379" height="788" alt="folderstructure" src="https://github.com/user-attachments/assets/005e5443-9ccd-4f79-8790-be3584dc92b4" />
 
 
+
+
+here is what it should look like on your desktop:
+
+<img width="931" height="472" alt="folderlooks" src="https://github.com/user-attachments/assets/7625fd68-f86a-4836-9905-5d0e8dd93989" />
+
+
+
+
 INSTRUCTIONS:
 
 
