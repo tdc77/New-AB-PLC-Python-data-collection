@@ -21,7 +21,8 @@ class MainPage(ctk.CTkFrame):
         self.refresh_job = None
         self.checkbox_vars = {}
         self.selected_columns = set()
-
+        self.new_sheet_var = ctk.BooleanVar(value=False)
+        
         # ---------------- Layout ----------------
         self.grid_rowconfigure((0, 1, 2, 3), weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -38,13 +39,14 @@ class MainPage(ctk.CTkFrame):
         body.grid_rowconfigure(0, weight=1)
 
         # --- Controls (left) ---
-        control_frame = ctk.CTkFrame(body, fg_color="gray25", corner_radius=10)
+        control_frame = ctk.CTkFrame(body, fg_color="light grey", corner_radius=10)
         control_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         ctk.CTkButton(control_frame, text="⚙ Go to Setup Page",
                       command=lambda: controller.show_frame("SetupPage")).pack(pady=10)
         ctk.CTkButton(control_frame, text="▶ Start Logging", command=self.start_refresh).pack(pady=10)
         ctk.CTkButton(control_frame, text="⏹ Stop Logging", command=self.stop_refresh).pack(pady=10)
         ctk.CTkButton(control_frame, text="🧹 Clear Table", command=self.clear_table).pack(pady=10)
+        ctk.CTkCheckBox(control_frame, text="New Sheet at Midnight", variable=self.new_sheet_var,onvalue=True,offvalue=False).pack(pady=10)
 
         # --- Chart area (middle) ---
         chart_frame = ctk.CTkFrame(body, fg_color="gray25", corner_radius=10)
@@ -60,7 +62,7 @@ class MainPage(ctk.CTkFrame):
         self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
 
         # --- Checkbox area (right) ---
-        self.checkbox_frame = ctk.CTkScrollableFrame(body, fg_color="gray25", corner_radius=10)
+        self.checkbox_frame = ctk.CTkScrollableFrame(body, fg_color="Light Grey", corner_radius=10)
         self.checkbox_frame.grid(row=0, column=2, sticky="nsew", padx=10, pady=10)
         ctk.CTkLabel(self.checkbox_frame, text="Select Columns to Plot:",
                      font=("Arial", 14, "bold")).pack(pady=5)
@@ -203,15 +205,26 @@ class MainPage(ctk.CTkFrame):
         now = datetime.datetime.now()
         data = {"Timestamp": now.strftime("%Y-%m-%d %H:%M:%S")}
 
-# --- Check if date changed (midnight rollover) ---
+        # Debug
+        print(f"[update_table] now={now}, current_date={self.current_date}, tags={tags}")
+
+            # --- Check if date changed (midnight rollover) ---
         if now.date() != self.current_date:
-            print("🌙 Midnight reached — creating new Excel file.")
-            self.save_log_to_excel()
-            self.log_df = pd.DataFrame()  # start a fresh sheet
+            print("🌙 Midnight reached — handling rollover.")
+            if getattr(self, "new_sheet_var", None) and self.new_sheet_var.get():
+                print("🌙 Midnight reached — saving log before new sheet (option enabled).")
+            # Save according to mode
+            if self.controller.shared_data.get("save_mode", "excel").lower() == "sql":
+                self.save_log_to_sql()
+            else:
+                self.save_log_to_excel()
+
+            # Reset for new day only once
+            self.log_df = pd.DataFrame()
             self.create_table()
             self.current_date = now.date()
 
-
+        # --- Read PLC tags ---
         if tags and ip:
             try:
                 with LogixDriver(ip) as plc:
@@ -224,12 +237,22 @@ class MainPage(ctk.CTkFrame):
                             data[tag] = value
             except Exception as e:
                 data["Error"] = str(e)
+                print(f"[update_table] PLC read error: {e}")
         else:
             data["Info"] = "No tags selected"
 
+        # --- Append row to DataFrame ---
         self.log_df = pd.concat([self.log_df, pd.DataFrame([data])], ignore_index=True)
         self.controller.shared_data["dataframe"] = self.log_df
 
+        # ✅ Append to SQL in real time if enabled
+        if self.controller.shared_data.get("save_mode", "excel").lower() == "sql":
+            try:
+                self.append_row_to_sql(data)
+            except Exception as e:
+                print(f"[update_table] append_row_to_sql error: {e}")
+
+        # --- Update TreeView ---
         if self.tree is None:
             self.create_table()
         else:
@@ -241,7 +264,6 @@ class MainPage(ctk.CTkFrame):
             self.tree.insert("", "end", values=row_values)
             self.tree.yview_moveto(1.0)
             self.auto_adjust_columns()
-
 
     def save_log_to_excel(self):
         """Save current log_df to an Excel file named by date."""
@@ -352,3 +374,141 @@ class MainPage(ctk.CTkFrame):
         self.save_log_to_excel()
     
         print("✅ MainPage closed safely — all timers canceled.")
+
+        save_mode = self.controller.shared_data.get("save_mode", "excel").lower()
+        if save_mode == "sql":
+            self.save_log_to_sql()
+        else:
+            self.save_log_to_excel()
+
+
+    def save_log_to_sql(self):
+        """Save current log_df to SQL database using connection info from SetupPage."""
+        if self.log_df.empty:
+            print("ℹ️ No data to save yet.")
+            return
+
+        sql_config = self.controller.shared_data.get("sql_config", {})
+        if not sql_config or not sql_config.get("database"):
+            print("⚠️ SQL configuration missing or incomplete.")
+            return
+
+        import mysql.connector
+        from mysql.connector import Error
+
+        try:
+            conn = mysql.connector.connect(
+            host=sql_config["host"],
+            port=int(sql_config.get("port", 3306)),
+            user=sql_config["user"],
+            password=sql_config["password"],
+            database=sql_config["database"]
+            )
+            cursor = conn.cursor()
+
+            table_name = "plc_logs"
+
+            # --- Create table if it doesn't exist ---
+            cols = ", ".join([f"`{c}` TEXT" for c in self.log_df.columns])
+            create_stmt = f"CREATE TABLE IF NOT EXISTS `{table_name}` ({cols});"
+            cursor.execute(create_stmt)
+
+            # --- Insert all rows ---
+            placeholders = ", ".join(["%s"] * len(self.log_df.columns))
+            insert_stmt = f"INSERT INTO `{table_name}` ({', '.join(['`' + c + '`' for c in self.log_df.columns])}) VALUES ({placeholders})"
+            cursor.executemany(insert_stmt, self.log_df.astype(str).values.tolist())
+
+            conn.commit()
+            print(f"💾 {len(self.log_df)} rows saved to SQL table `{table_name}`.")
+            cursor.close()
+            conn.close()
+
+        except Error as e:
+            print(f"⚠️ SQL save failed: {e}")
+
+    def append_row_to_sql(self, row_data: dict):
+        """Append a single structured row to the SQL table in real-time with proper column types."""
+        sql_config = self.controller.shared_data.get("sql_config", {})
+        if not sql_config or not sql_config.get("database"):
+            print("[append_row_to_sql] SQL config missing or incomplete; skipping SQL insert.")
+            return  # Skip if SQL not configured
+
+        import mysql.connector
+        from mysql.connector import Error
+
+        try:
+            conn = mysql.connector.connect(
+                host=sql_config["host"],
+                port=int(sql_config.get("port", 3306)),
+                user=sql_config["user"],
+                password=sql_config["password"],
+                database=sql_config["database"]
+            )
+            cursor = conn.cursor()
+            table_name = "plc_logs"
+
+            # --- Step 1: Create table with typed columns ---
+            column_defs = []
+            for col, val in row_data.items():
+                if col.lower() == "timestamp":
+                    col_type = "DATETIME"
+                elif isinstance(val, (int, float)) or (isinstance(val, str) and val.replace('.', '', 1).lstrip('-').isdigit()):
+                    # allow negative numbers and decimals
+                        col_type = "DOUBLE"
+                else:
+                    col_type = "TEXT"
+                column_defs.append(f"`{col}` {col_type}")
+
+            create_stmt = f"CREATE TABLE IF NOT EXISTS `{table_name}` ({', '.join(column_defs)});"
+            cursor.execute(create_stmt)
+
+            # --- Step 2: Ensure all new columns exist (schema evolves with tags) ---
+            cursor.execute(f"DESCRIBE `{table_name}`;")
+            existing_cols = {row[0] for row in cursor.fetchall()}
+            for col, val in row_data.items():
+                if col not in existing_cols:
+                    if col.lower() == "timestamp":
+                     col_type = "DATETIME"
+                    elif isinstance(val, (int, float)) or (isinstance(val, str) and val.replace('.', '', 1).lstrip('-').isdigit()):
+                        col_type = "DOUBLE"
+                    else:
+                        col_type = "TEXT"
+                    alter = f"ALTER TABLE `{table_name}` ADD COLUMN `{col}` {col_type};"
+                    cursor.execute(alter)
+
+            # --- Step 3: Insert the row ---
+            columns = list(row_data.keys())
+            placeholders = ", ".join(["%s"] * len(columns))
+            insert_stmt = (
+                f"INSERT INTO `{table_name}` ({', '.join(['`' + c + '`' for c in columns])}) "
+                f"VALUES ({placeholders})"
+            )
+
+            # --- Convert timestamp safely ---
+            from datetime import datetime
+            values = []
+            for c in columns:
+                v = row_data[c]
+                if c.lower() == "timestamp" and isinstance(v, str):
+                    # input format from update_table: "%Y-%m-%d %H:%M:%S"
+                    try:
+                        v = datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        try:
+                            v = datetime.fromisoformat(v)
+                        except Exception:
+                            v = None
+                # leave numeric strings as-is; mysql.connector will convert when column is DOUBLE
+                values.append(v)
+
+            cursor.execute(insert_stmt, values)
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            print(f"📥 Row appended to `{table_name}` ({row_data.get('Timestamp', 'unknown time')})")
+
+        except Error as e:
+            print(f"⚠️ SQL insert failed: {e}")
+        except Exception as e:
+            print(f"⚠️ Unexpected error in append_row_to_sql: {e}")
