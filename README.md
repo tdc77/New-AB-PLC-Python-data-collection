@@ -1,6 +1,8 @@
 A newer version of my Datacollection python program. I used customtkinter for a better looking gui and easier tag selecting.
 This program will get the tag values from the PLC and save in an excel file.  It creates a new file at midnight.
 
+There is an update in Update branch!!! 11-3-25
+
 
 when opening is vscode or pycharm make sure the Main_page.py, setup_page.py, __init__.py are in a folder called pages.  app.py and main.py must be outside of that folder.
 
