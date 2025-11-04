@@ -1,6 +1,10 @@
 A newer version of my Datacollection python program. I used customtkinter for a better looking gui and easier tag selecting.
 This program will get the tag values from the PLC and save in an excel file.  It creates a new file at midnight.
 
+Updated--11-3-25: added checkbox for midnight new sheet creation and now you can send to mysql database.
+
+see updates at end.
+
 
 when opening is vscode or pycharm make sure the Main_page.py, setup_page.py, __init__.py are in a folder called pages.  app.py and main.py must be outside of that folder.
 
@@ -54,8 +58,25 @@ Also a new sheet will start at midnight!
 
 
 
+UPDATES:  Mysql connection on setup page:
+
+<img width="1387" height="430" alt="mysqlconn" src="https://github.com/user-attachments/assets/db45b88f-1e93-4a5e-bacc-896639442f4c" />
+
+
+
+Checkbox for new sheet at midnight:
+
+<img width="392" height="539" alt="newsheet" src="https://github.com/user-attachments/assets/271f388b-b8a3-45d4-810e-4b3163505f18" />
+
+
+I had an issue with mysql-connector-python not installing in my lib file, so I just downloaded it and moved it in manually.
+
+
+<img width="308" height="616" alt="mysqlfile" src="https://github.com/user-attachments/assets/5524f59c-5d2d-414b-8d22-870218b7822c" />
+
+
+
+
 THIS IS STILL UNDER CONSTRUCTION:
 
 Working on only getting data when the data changes so your not getting duplicates.
-Saving in a separate folder instead of same folder as program.
-checkbox for new sheet creation.
